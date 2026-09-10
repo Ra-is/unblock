@@ -37,7 +37,7 @@ packet, or reach another tenant's data. Sample cases have no new reply-routing t
 
 ```sh
 uv sync --frozen
-AWS_PROFILE=renobytes AWS_DEFAULT_REGION=eu-west-2 uv run uvicorn unblock.api:app --host 127.0.0.1 --port 8000 --reload
+AWS_PROFILE=your-aws-profile AWS_DEFAULT_REGION=eu-west-2 uv run uvicorn unblock.api:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Open http://127.0.0.1:8000. Without AWS resource configuration, the local API has a development identity and in-memory case storage; files are in `.local/documents`. **Local cases disappear on process restart.** Real model calls use the selected AWS profile and incur Bedrock charges. There is no hidden mock agent. Never bind local authentication mode to a public interface.
@@ -58,9 +58,9 @@ Two scripts exercise the deployed system rather than mocks. `scripts/smoke.py` c
 ## AWS deployment
 
 ```sh
-uv run python scripts/deploy.py --profile renobytes --region eu-west-2 \
-  --inbound-domain inbound.renobytes.com \
-  --mail-from unblock@renobytes.com \
+uv run python scripts/deploy.py --profile your-aws-profile --region eu-west-2 \
+  --inbound-domain inbound.example.com \
+  --mail-from unblock@example.com \
   --allowed-recipients you@example.com \
   --hosted-zone-id ZXXXXXXXXXXXXX \
   --enable-sending
@@ -74,6 +74,8 @@ uv run python scripts/smoke_mail.py
 For a new deployment, omitting the mail flags leaves email disabled. Updates preserve existing mail settings unless flags explicitly change them; `--no-enable-sending` disables sending. `--enable-sending` requires a sender and an allowlist. The template manages MX and a DMARC policy only for the project's inbound subdomain; it does not change apex-domain mail routing or policy. CloudFormation creates the SES receipt rule set and the script activates it.
 
 The deployment script packages locked Linux/Python 3.12 dependencies and deploys `unblock-dev-artifacts` and `unblock-dev`. Resources are tagged `Project=Unblock`. It writes resource outputs to `.local/deployment.json`. Owner credentials are generated locally into `.local/owner-access.json` with owner-only permissions; they are never committed or printed. Sign in through the deployed application's button using those credentials.
+
+An AWS profile name is a local configuration label, not a credential. Replace `your-aws-profile` with your own configured profile. Updates reuse the profile saved in ignored `.local/deployment.json` and refuse a different AWS account once its account ID is saved. GitHub Actions runs tests and secret scanning without AWS credentials.
 
 The deployment uses the profile only from your machine. Lambda uses separate IAM execution roles. Your AWS keys are never bundled into the application. The API cannot invoke models; the worker cannot upload documents. All business endpoints authenticate on the server. Document routes derive tenant access from the verified identity, never a request's tenant field.
 

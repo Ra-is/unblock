@@ -129,7 +129,7 @@ def activate_rule_set(session, name):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", default="renobytes")
+    parser.add_argument("--profile", help="Local AWS profile; defaults to saved deployment profile")
     parser.add_argument("--region", default="eu-west-2")
     parser.add_argument("--stack", default="unblock-dev")
     parser.add_argument("--inbound-domain", default=None)
@@ -138,7 +138,15 @@ def main():
     parser.add_argument("--hosted-zone-id", default=None)
     parser.add_argument("--enable-sending", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
+    config_path = ROOT / ".local/deployment.json"
+    saved = json.loads(config_path.read_text()) if config_path.exists() else {}
+    args.profile = args.profile or saved.get("Profile")
+    if not args.profile:
+        parser.error("--profile is required for the first deployment")
     session = boto3.Session(profile_name=args.profile, region_name=args.region)
+    account = session.client("sts").get_caller_identity()["Account"]
+    if saved.get("Account") and saved["Account"] != account:
+        parser.error("Selected AWS account differs from the saved deployment account")
     cf = session.client("cloudformation")
     try:
         prior = {
@@ -164,7 +172,6 @@ def main():
     # Created out of band by scripts/create_demo.py; absent on deployments without a demo.
     demo_path = ROOT / ".local/demo-access.json"
     demo = json.loads(demo_path.read_text()) if demo_path.exists() else {}
-    account = session.client("sts").get_caller_identity()["Account"]
     print(f"Deploying {args.stack} in {args.region}, account {account}", flush=True)
     bootstrap = deploy_stack(cf, args.stack + "-artifacts", ROOT / "infra/bootstrap.yaml")
     archive = package()
@@ -193,7 +200,8 @@ def main():
     local.mkdir(exist_ok=True)
     (local / "deployment.json").write_text(
         json.dumps(
-            {**outputs, "Region": args.region, "Profile": args.profile, "Stack": args.stack},
+            {**outputs, "Region": args.region, "Profile": args.profile,
+             "Stack": args.stack, "Account": account},
             indent=2,
         )
     )
