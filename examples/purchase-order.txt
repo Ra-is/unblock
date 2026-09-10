@@ -1,0 +1,6 @@
+SYNTHETIC DEMONSTRATION DOCUMENT — NOT A REAL PURCHASE ORDER
+PURCHASE ORDER
+Supplier: Ama Catering Ltd
+Order reference: PO-1042
+Description: Catering services for a community workshop
+Authorized total: GHS 4800.00

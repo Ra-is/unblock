@@ -1,0 +1,9 @@
+.venv/
+.env
+.local/
+.build/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+.DS_Store

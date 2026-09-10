@@ -1,0 +1,512 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Unblock invoice evidence workspace - development/pilot deployment
+Parameters:
+  ArtifactBucket: {Type: String}
+  ArtifactKey: {Type: String}
+  ModelId: {Type: String, Default: 'amazon.nova-pro-v1:0'}
+  InboundDomain:
+    Type: String
+    Default: ''
+    Description: Subdomain that receives supplier replies. Empty disables all mail.
+  MailFrom:
+    Type: String
+    Default: ''
+    Description: Verified SES sender address for outbound evidence requests.
+  AllowedRecipients:
+    Type: String
+    Default: ''
+    Description: Comma-separated addresses or domains the agent may email.
+  SendEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Master switch for outbound delivery.
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Route53 zone for the inbound subdomain's MX record. Empty skips DNS.
+  DemoUsername:
+    Type: String
+    Default: ''
+    Description: Shared read-only demo account. Empty hides the guest button.
+  DemoPassword:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Password for the read-only demo account.
+Conditions:
+  MailEnabled: !Not [!Equals [!Ref InboundDomain, '']]
+  ManageDns: !And [!Condition MailEnabled, !Not [!Equals [!Ref HostedZoneId, '']]]
+Resources:
+  Documents:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      VersioningConfiguration: {Status: Enabled}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: IncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+          - Id: RawInboundMail
+            Status: Enabled
+            Prefix: inbound/
+            ExpirationInDays: 30
+            NoncurrentVersionExpiration: {NoncurrentDays: 7}
+      Tags: [{Key: Project, Value: Unblock}, {Key: Environment, Value: dev}]
+  DocumentsPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Documents
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt Documents.Arn, !Sub '${Documents.Arn}/*']
+            Condition: {Bool: {'aws:SecureTransport': false}}
+          # SES may deposit raw inbound mail, and only under the inbound/ prefix.
+          - Effect: Allow
+            Principal: {Service: ses.amazonaws.com}
+            Action: 's3:PutObject'
+            Resource: !Sub '${Documents.Arn}/inbound/*'
+            Condition:
+              StringEquals: {'aws:SourceAccount': !Ref 'AWS::AccountId'}
+              StringLike:
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:receipt-rule-set/*'
+  Cases:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}, {AttributeName: sk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}, {AttributeName: sk, KeyType: RANGE}]
+      SSESpecification: {SSEEnabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      StreamSpecification: {StreamViewType: NEW_IMAGE}
+      Tags: [{Key: Project, Value: Unblock}]
+  DeadLetters:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+  Jobs:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 1800
+      MessageRetentionPeriod: 345600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetters.Arn
+        maxReceiveCount: 3
+  StreamDeadLetters:
+    Type: AWS::SQS::Queue
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+  Users:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-users'
+      AdminCreateUserConfig: {AllowAdminCreateUserOnly: true}
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 14
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      Schema:
+        - Name: tenant
+          AttributeDataType: String
+          Mutable: false
+          StringAttributeConstraints: {MinLength: '1', MaxLength: '80'}
+      UserPoolTags: {Project: Unblock}
+  ReviewerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref Users
+      GroupName: reviewer
+      Description: May accept evidence packets; cannot authorize payments
+  DemoGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref Users
+      GroupName: demo
+      Description: Shared public account; read-only and never a reviewer
+  UserClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref Users
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs: [!Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/']
+      LogoutURLs: [!Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/']
+      ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      IdTokenValidity: 1
+      AccessTokenValidity: 1
+      RefreshTokenValidity: 1
+      TokenValidityUnits: {IdToken: hours, AccessToken: hours, RefreshToken: days}
+      ReadAttributes: ['custom:tenant']
+      WriteAttributes: []
+  UserDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref Users
+      Domain: !Sub 'unblock-${AWS::AccountId}-${AWS::Region}'
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: 'sts:AssumeRole'}]
+      Policies:
+        - PolicyName: ApiData
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem']
+                Resource: !GetAtt Cases.Arn
+              - Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject']
+                Resource: !Sub '${Documents.Arn}/*'
+              - Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-api:*'
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: 'sts:AssumeRole'}]
+      Policies:
+        - PolicyName: WorkerData
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem']
+                Resource: !GetAtt Cases.Arn
+              - Effect: Allow
+                Action: ['s3:GetObject']
+                Resource: !Sub '${Documents.Arn}/*'
+              - Effect: Allow
+                Action: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes']
+                Resource: !GetAtt Jobs.Arn
+              - Effect: Allow
+                Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream']
+                Resource: !Sub 'arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${ModelId}'
+              # The agent may send only from the configured identity, never as anyone else.
+              - !If
+                - MailEnabled
+                - Effect: Allow
+                  Action: ['ses:SendEmail']
+                  Resource: !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*'
+                  Condition:
+                    StringEquals: {'ses:FromAddress': !Ref MailFrom}
+                - !Ref 'AWS::NoValue'
+              - Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-worker:*'
+  OutboxRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: 'sts:AssumeRole'}]
+      Policies:
+        - PolicyName: DispatchJobs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['dynamodb:DescribeStream', 'dynamodb:GetRecords', 'dynamodb:GetShardIterator']
+                Resource: !GetAtt Cases.StreamArn
+              - Effect: Allow
+                Action: ['dynamodb:ListStreams']
+                Resource: !GetAtt Cases.Arn
+              - Effect: Allow
+                Action: ['sqs:SendMessage']
+                Resource: [!GetAtt Jobs.Arn, !GetAtt StreamDeadLetters.Arn]
+              - Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-outbox:*'
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-api', RetentionInDays: 14}
+  WorkerLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-worker', RetentionInDays: 14}
+  OutboxLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-outbox', RetentionInDays: 14}
+  Api:
+    Type: AWS::Lambda::Function
+    DependsOn: ApiLogs
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-api'
+      Runtime: python3.12
+      Architectures: [x86_64]
+      Handler: unblock.api.handler
+      Role: !GetAtt ApiRole.Arn
+      Timeout: 29
+      MemorySize: 512
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Environment:
+        Variables:
+          APP_ENV: dev
+          UNBLOCK_TABLE: !Ref Cases
+          UNBLOCK_BUCKET: !Ref Documents
+          UNBLOCK_USER_POOL_ID: !Ref Users
+          UNBLOCK_CLIENT_ID: !Ref UserClient
+          UNBLOCK_AUTH_DOMAIN: !Sub 'https://${UserDomain}.auth.${AWS::Region}.amazoncognito.com'
+          UNBLOCK_INBOUND_DOMAIN: !Ref InboundDomain
+          UNBLOCK_DEMO_USERNAME: !Ref DemoUsername
+          UNBLOCK_DEMO_PASSWORD: !Ref DemoPassword
+  Worker:
+    Type: AWS::Lambda::Function
+    DependsOn: WorkerLogs
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-worker'
+      Runtime: python3.12
+      Architectures: [x86_64]
+      Handler: unblock.agent.worker_handler
+      Role: !GetAtt WorkerRole.Arn
+      Timeout: 300
+      MemorySize: 1024
+      ReservedConcurrentExecutions: 2
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Environment:
+        Variables:
+          APP_ENV: dev
+          UNBLOCK_TABLE: !Ref Cases
+          UNBLOCK_BUCKET: !Ref Documents
+          UNBLOCK_MODEL_ID: !Ref ModelId
+          UNBLOCK_SEND_ENABLED: !Ref SendEnabled
+          UNBLOCK_MAIL_FROM: !Ref MailFrom
+          UNBLOCK_INBOUND_DOMAIN: !Ref InboundDomain
+          UNBLOCK_ALLOWED_RECIPIENTS: !Ref AllowedRecipients
+  Outbox:
+    Type: AWS::Lambda::Function
+    DependsOn: OutboxLogs
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-outbox'
+      Runtime: python3.12
+      Architectures: [x86_64]
+      Handler: unblock.agent.outbox_handler
+      Role: !GetAtt OutboxRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Environment:
+        Variables:
+          APP_ENV: dev
+          UNBLOCK_QUEUE_URL: !Ref Jobs
+  StreamMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref Outbox
+      EventSourceArn: !GetAtt Cases.StreamArn
+      StartingPosition: TRIM_HORIZON
+      BatchSize: 10
+      BisectBatchOnFunctionError: true
+      MaximumRetryAttempts: 5
+      DestinationConfig:
+        OnFailure: {Destination: !GetAtt StreamDeadLetters.Arn}
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"eventName":["INSERT"],"dynamodb":{"NewImage":{"kind":{"S":["JOB"]}}}}'
+  JobMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref Worker
+      EventSourceArn: !GetAtt Jobs.Arn
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      ScalingConfig: {MaximumConcurrency: 2}
+  InboundRole:
+    Type: AWS::IAM::Role
+    Condition: MailEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: 'sts:AssumeRole'}]
+      Policies:
+        - PolicyName: InboundData
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem']
+                Resource: !GetAtt Cases.Arn
+              # Reads raw mail, writes extracted evidence. It cannot send mail or invoke models.
+              - Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject']
+                Resource: !Sub '${Documents.Arn}/*'
+              - Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-inbound:*'
+  InboundLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: MailEnabled
+    Properties: {LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-inbound', RetentionInDays: 14}
+  Inbound:
+    Type: AWS::Lambda::Function
+    Condition: MailEnabled
+    DependsOn: InboundLogs
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-inbound'
+      Runtime: python3.12
+      Architectures: [x86_64]
+      Handler: unblock.inbound.handler
+      Role: !GetAtt InboundRole.Arn
+      Timeout: 60
+      MemorySize: 1024
+      ReservedConcurrentExecutions: 5
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Environment:
+        Variables:
+          APP_ENV: dev
+          UNBLOCK_TABLE: !Ref Cases
+          UNBLOCK_BUCKET: !Ref Documents
+          UNBLOCK_INBOUND_DOMAIN: !Ref InboundDomain
+  InboundInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: MailEnabled
+    Properties:
+      FunctionName: !GetAtt Inbound.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: ses.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+  ReceiptRules:
+    Type: AWS::SES::ReceiptRuleSet
+    Condition: MailEnabled
+    Properties:
+      RuleSetName: !Sub '${AWS::StackName}-inbound'
+  SupplierReplyRule:
+    Type: AWS::SES::ReceiptRule
+    Condition: MailEnabled
+    # The bucket policy and invoke permission must exist before SES validates the actions.
+    DependsOn: [DocumentsPolicy, InboundInvokePermission]
+    Properties:
+      RuleSetName: !Ref ReceiptRules
+      Rule:
+        Name: supplier-replies
+        Enabled: true
+        ScanEnabled: true
+        TlsPolicy: Require
+        Recipients: [!Ref InboundDomain]
+        Actions:
+          - S3Action:
+              BucketName: !Ref Documents
+              ObjectKeyPrefix: inbound/
+          - LambdaAction:
+              FunctionArn: !GetAtt Inbound.Arn
+              InvocationType: Event
+  InboundDmarc:
+    Type: AWS::Route53::RecordSet
+    Condition: ManageDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub '_dmarc.${InboundDomain}'
+      Type: TXT
+      TTL: '300'
+      ResourceRecords: ['"v=DMARC1; p=quarantine; adkim=r; aspf=r"']
+  InboundMx:
+    Type: AWS::Route53::RecordSet
+    Condition: ManageDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref InboundDomain
+      Type: MX
+      TTL: '300'
+      ResourceRecords: [!Sub '10 inbound-smtp.${AWS::Region}.amazonaws.com']
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: {Name: !Sub '${AWS::StackName}-http', ProtocolType: HTTP}
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt Api.Arn
+      PayloadFormatVersion: '2.0'
+  Route:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref HttpApi, RouteKey: '$default', Target: !Sub 'integrations/${Integration}'}
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: '$default'
+      AutoDeploy: true
+      DefaultRouteSettings: {ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10}
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Api
+      Action: 'lambda:InvokeFunction'
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+  FailedJobsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Unblock jobs exhausted retries; inspect and redrive the dead-letter queue
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt DeadLetters.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+  FailedDispatchAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Unblock outbox dispatch failed; replay the stream failure record
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt StreamDeadLetters.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+Outputs:
+  AppUrl: {Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'}
+  ReceiptRuleSet:
+    Condition: MailEnabled
+    Value: !Ref ReceiptRules
+  InboundDomainName:
+    Condition: MailEnabled
+    Value: !Ref InboundDomain
+  TableName: {Value: !Ref Cases}
+  DocumentBucket: {Value: !Ref Documents}
+  QueueUrl: {Value: !Ref Jobs}
+  DeadLetterQueueUrl: {Value: !Ref DeadLetters}
+  UserPoolId: {Value: !Ref Users}
+  ClientId: {Value: !Ref UserClient}
+  AuthDomain: {Value: !Sub 'https://${UserDomain}.auth.${AWS::Region}.amazoncognito.com'}

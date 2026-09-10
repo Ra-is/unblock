@@ -1,0 +1,25 @@
+[project]
+name = "unblock"
+version = "0.1.0"
+description = "Evidence-led invoice resolution with Strands Agents"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "mangum>=0.19,<1",
+  "boto3>=1.40,<2", "strands-agents>=1.0,<2", "pydantic-settings>=2.8,<3",
+  "PyJWT[crypto]>=2.10,<3", "python-multipart>=0.0.20,<1", "pypdf>=6,<7"
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<9", "httpx>=0.28,<1", "ruff>=0.11,<1", "moto[s3,dynamodb,sqs]>=5,<6", "cfn-lint>=1,<2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = ["B008"]

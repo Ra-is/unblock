@@ -1,0 +1,7 @@
+SYNTHETIC DEMONSTRATION DOCUMENT — NOT A REAL INVOICE
+INVOICE
+Supplier: Ama Catering Ltd
+Invoice reference: INV-2041
+Order reference: PO-1042
+Description: Catering services for a community workshop
+Total amount: GHS 4800.00

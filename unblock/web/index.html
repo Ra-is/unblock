@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="description"
+      content="Resolve the missing evidence behind blocked invoices."
+    />
+    <title>Unblock — Invoice workspace</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/app.js" type="module"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Unblock home"
+        ><span class="brand-icon">u</span> unblock<span class="brand-dot"
+          >.</span
+        ></a
+      >
+      <div class="workspace-label">WORKSPACE</div>
+      <div class="nav-item active">
+        <span>▦</span> Invoice cases <span id="nav-count" class="count">0</span>
+      </div>
+      <div class="sidebar-bottom">
+        <span class="avatar">R</span>
+        <div>
+          Renobytes workspace<small id="environment">Connecting…</small>
+        </div>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <span>Operations <span class="slash">/</span> Invoice cases</span
+        ><button id="signout" class="text-button" hidden>Sign out</button>
+      </header>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <section id="login" class="login-card" hidden>
+        <span class="eyebrow">YOUR OPERATIONS, IN ORDER</span>
+        <h1>Get the paperwork<br />moving again.</h1>
+        <p>
+          Review the evidence. Resolve the gaps.<br />Bring each invoice one
+          step closer to payment.
+        </p>
+        <button id="signin" class="primary">Sign in to your workspace →</button>
+        <button id="try-demo" class="secondary" hidden>
+          Explore a sample case →
+        </button>
+        <small id="demo-hint" hidden
+          >A simulated, read-only walkthrough. No sign-up required.</small
+        >
+      </section>
+      <section id="workspace" hidden>
+        <div id="demo-banner" class="demo-banner" hidden>
+          <strong>Simulated sample walkthrough.</strong> These documents and
+          events illustrate the workflow; they are not a recording of a live
+          run. Email delivery and changes are disabled.
+        </div>
+        <div class="page-heading">
+          <div>
+            <h1>Invoice cases</h1>
+            <p>Evidence chased, checked and packaged for review.</p>
+          </div>
+          <button id="new-case" class="primary">＋ New case</button>
+        </div>
+        <div class="metrics">
+          <div><span>Open</span><strong id="metric-open">0</strong></div>
+          <div>
+            <span>Waiting on evidence</span
+            ><strong id="metric-blocked">0</strong>
+          </div>
+          <div>
+            <span>Ready for review</span><strong id="metric-ready">0</strong>
+          </div>
+          <div>
+            <span>Packets accepted</span><strong id="metric-reviewed">0</strong>
+          </div>
+        </div>
+        <div class="workbench">
+          <section class="case-list">
+            <div class="section-title">
+              <h2>Cases</h2>
+              <button id="refresh" class="text-button">Refresh ↻</button>
+            </div>
+            <label class="search"
+              ><span>⌕</span
+              ><input
+                id="search"
+                type="search"
+                placeholder="Find an invoice or supplier"
+                aria-label="Find an invoice or supplier"
+            /></label>
+            <div id="case-list"></div>
+          </section>
+          <section id="case-detail" class="case-detail">
+            <div class="empty">
+              <span class="empty-icon">↗</span>
+              <h2>A clear path forward.</h2>
+              <p>
+                Open a case to collect evidence and resolve<br />the documents
+                holding up an invoice.
+              </p>
+              <button id="empty-create" class="secondary">
+                Create your first case
+              </button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+    <dialog id="create-dialog">
+      <form id="create-form">
+        <div class="dialog-heading">
+          <h2>Open an invoice case</h2>
+          <button
+            type="button"
+            id="close-create"
+            class="text-button"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <p class="muted">
+          Start with the expected invoice details. Every document will be
+          checked against these values.
+        </p>
+        <label
+          >Supplier name<input
+            name="supplier"
+            required
+            minlength="2"
+            maxlength="160"
+            placeholder="Ama Catering Ltd"
+        /></label>
+        <div class="form-row">
+          <label
+            >Invoice reference<input
+              name="invoice_ref"
+              required
+              maxlength="80"
+              placeholder="INV-2041" /></label
+          ><label
+            >Order reference<input
+              name="order_ref"
+              required
+              maxlength="80"
+              placeholder="PO-1042"
+          /></label>
+        </div>
+        <div class="form-row">
+          <label
+            >Invoice amount<input
+              name="amount"
+              required
+              type="number"
+              min="0.01"
+              max="1000000000"
+              step="0.01"
+              placeholder="4800.00" /></label
+          ><label
+            >Currency<select name="currency">
+              <option>GHS</option>
+              <option>USD</option>
+              <option>GBP</option>
+              <option>EUR</option>
+              <option>NGN</option>
+            </select></label
+          >
+        </div>
+        <div class="form-row">
+          <label
+            >Contact name<input
+              name="contact_name"
+              required
+              maxlength="100"
+              placeholder="Ama Mensah" /></label
+          ><label
+            >Contact email<input
+              name="contact_email"
+              required
+              type="email"
+              maxlength="254"
+              placeholder="ama@example.com"
+          /></label>
+        </div>
+        <div class="form-footer">
+          <span
+            >Requires invoice, purchase order<br />and signed delivery
+            confirmation.</span
+          ><button type="submit" class="primary">Create case →</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="review-dialog">
+      <form id="review-form">
+        <div class="dialog-heading">
+          <h2>Accept evidence packet</h2>
+          <button
+            type="button"
+            id="close-review"
+            class="text-button"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <p>
+          Confirm you have reviewed the source documents. This records
+          acceptance of the paperwork; it does not authorize or initiate
+          payment.
+        </p>
+        <label
+          >Reviewer note<textarea
+            id="review-note"
+            required
+            minlength="5"
+            maxlength="1000"
+            rows="4"
+            placeholder="Describe what you checked…"
+          ></textarea></label
+        ><button class="primary" type="submit">Accept packet</button>
+      </form>
+    </dialog>
+  </body>
+</html>
