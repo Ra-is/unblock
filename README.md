@@ -4,6 +4,12 @@ An invoice evidence workspace built with **Strands Agents SDK** and Amazon Bedro
 
 **Release status: development/pilot foundation, not an audited production service.** No payment is authorized. Outbound mail is disabled unless a deployment explicitly enables it and supplies a recipient allowlist.
 
+![Actual deployed workflow holding a message from the wrong contact](docs/assets/live-mail-review.png)
+
+This screenshot is from a real AWS/SES test using synthetic documents and project-controlled addresses. It is separate from the simulated public sample.
+
+[Download the three-minute live demo](https://github.com/Ra-is/unblock/releases/download/v0.1.0/unblock-demo.mp4) · [Captions](https://github.com/Ra-is/unblock/releases/download/v0.1.0/unblock-demo.vtt) · [Release notes](https://github.com/Ra-is/unblock/releases/tag/v0.1.0)
+
 ## What works
 
 - Cognito sign-in (authorization code + PKCE), organization-scoped records, reviewer permissions.

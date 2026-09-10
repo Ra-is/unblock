@@ -8,6 +8,8 @@ Unblock helps small suppliers and operations teams resolve missing paperwork beh
 
 Target duration: 2–4 minutes. Use synthetic catering documents and mailboxes controlled by this project. The public sample is simulated and must not be presented as a live run.
 
+The first release includes a three-minute actual screen recording with synthesized narration and VTT captions. It was recorded using `scripts/record_demo.cjs`; its private session material and raw captures stay under gitignored `.local/recording/`. The recording harness requires Playwright with Chrome and its FFmpeg package, system ffmpeg/ffprobe, and macOS `say`. It shows a clearly labeled controlled-mailbox viewer backed by real SES-received messages; no API responses or case transitions are mocked.
+
 1. Open an invoice case for Ama Catering Ltd: INV-2041, PO-1042, GHS 4,800.00. Upload invoice, purchase order and wrong receipt from `examples/`.
 2. Start the review. Show the order mismatch on the actual source receipt. The agent sends a request via SES and enters the waiting state.
 3. Show the received request in the controlled supplier mailbox. The mailbox viewer is a recording/test harness, not an additional Unblock product feature.
