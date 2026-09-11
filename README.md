@@ -8,7 +8,7 @@ An invoice evidence workspace built with **Strands Agents SDK** and Amazon Bedro
 
 This screenshot is from a real AWS/SES test using synthetic documents and project-controlled addresses. It is separate from the simulated public sample.
 
-**[Watch the demo — 2 minutes 32 seconds](https://ra-is.github.io/unblock/)** · [Download MP4](https://github.com/Ra-is/unblock/releases/download/v0.1.0/unblock-demo-corrected-flow.mp4) · [Release notes](https://github.com/Ra-is/unblock/releases/tag/v0.1.0)
+**[Open the live app](https://unblock-demo.renobytes.com/)** · [Watch the demo — 2 minutes 32 seconds](https://ra-is.github.io/unblock/) · [Download MP4](https://github.com/Ra-is/unblock/releases/download/v0.1.0/unblock-demo-corrected-flow.mp4) · [Release notes](https://github.com/Ra-is/unblock/releases/tag/v0.1.0)
 
 Narrated by the creator. Shows case creation, document uploads, the deliberate order mismatch, real email follow-up, automatic review of the reply, and human acceptance. Waiting periods are shortened; document close-ups are labeled annotations.
 
