@@ -136,6 +136,7 @@ def main():
     parser.add_argument("--mail-from", default=None)
     parser.add_argument("--allowed-recipients", default=None)
     parser.add_argument("--hosted-zone-id", default=None)
+    parser.add_argument("--public-domain", default=None)
     parser.add_argument("--enable-sending", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
     config_path = ROOT / ".local/deployment.json"
@@ -162,6 +163,7 @@ def main():
         ("mail_from", "MailFrom"),
         ("allowed_recipients", "AllowedRecipients"),
         ("hosted_zone_id", "HostedZoneId"),
+        ("public_domain", "PublicDomain"),
     ):
         if getattr(args, attribute) is None:
             setattr(args, attribute, prior.get(parameter, ""))
@@ -169,6 +171,8 @@ def main():
         args.enable_sending = prior.get("SendEnabled", "false") == "true"
     if args.enable_sending and not (args.mail_from and args.allowed_recipients):
         parser.error("--enable-sending requires --mail-from and --allowed-recipients")
+    if args.public_domain and not args.hosted_zone_id:
+        parser.error("--public-domain requires --hosted-zone-id to validate its certificate")
     # Created out of band by scripts/create_demo.py; absent on deployments without a demo.
     demo_path = ROOT / ".local/demo-access.json"
     demo = json.loads(demo_path.read_text()) if demo_path.exists() else {}
@@ -189,6 +193,7 @@ def main():
             "MailFrom": args.mail_from,
             "AllowedRecipients": args.allowed_recipients,
             "HostedZoneId": args.hosted_zone_id,
+            "PublicDomain": args.public_domain,
             "SendEnabled": "true" if args.enable_sending else "false",
             "DemoUsername": demo.get("username", ""),
             "DemoPassword": demo.get("password", ""),

@@ -25,6 +25,13 @@ Parameters:
     Type: String
     Default: ''
     Description: Route53 zone for the inbound subdomain's MX record. Empty skips DNS.
+  PublicDomain:
+    Type: String
+    Default: ''
+    Description: >-
+      Custom hostname for the workspace, e.g. unblock-demo.example.com. Requires
+      HostedZoneId so the certificate can be validated by DNS. Empty keeps only
+      the execute-api endpoint.
   DemoUsername:
     Type: String
     Default: ''
@@ -37,6 +44,10 @@ Parameters:
 Conditions:
   MailEnabled: !Not [!Equals [!Ref InboundDomain, '']]
   ManageDns: !And [!Condition MailEnabled, !Not [!Equals [!Ref HostedZoneId, '']]]
+  # A custom hostname needs a DNS-validated certificate, so the zone is mandatory.
+  PublicHost: !And
+    - !Not [!Equals [!Ref PublicDomain, '']]
+    - !Not [!Equals [!Ref HostedZoneId, '']]
 Resources:
   Documents:
     Type: AWS::S3::Bucket
@@ -158,8 +169,13 @@ Resources:
       AllowedOAuthFlows: [code]
       AllowedOAuthScopes: [openid, profile]
       SupportedIdentityProviders: [COGNITO]
-      CallbackURLs: [!Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/']
-      LogoutURLs: [!Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/']
+      # The browser redirects back to whichever host it started from, so both are registered.
+      CallbackURLs:
+        - !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/'
+        - !If [PublicHost, !Sub 'https://${PublicDomain}/', !Ref 'AWS::NoValue']
+      LogoutURLs:
+        - !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/'
+        - !If [PublicHost, !Sub 'https://${PublicDomain}/', !Ref 'AWS::NoValue']
       ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
       PreventUserExistenceErrors: ENABLED
       EnableTokenRevocation: true
@@ -462,6 +478,45 @@ Resources:
       StageName: '$default'
       AutoDeploy: true
       DefaultRouteSettings: {ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10}
+  PublicCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: PublicHost
+    Properties:
+      DomainName: !Ref PublicDomain
+      ValidationMethod: DNS
+      # CloudFormation writes the validation record itself and waits for issuance.
+      DomainValidationOptions:
+        - DomainName: !Ref PublicDomain
+          HostedZoneId: !Ref HostedZoneId
+      Tags: [{Key: Project, Value: Unblock}]
+  PublicDomainName:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: PublicHost
+    Properties:
+      DomainName: !Ref PublicDomain
+      DomainNameConfigurations:
+        - CertificateArn: !Ref PublicCertificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+  PublicMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: PublicHost
+    DependsOn: Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      DomainName: !Ref PublicDomainName
+      Stage: '$default'
+  PublicAlias:
+    Type: AWS::Route53::RecordSet
+    Condition: PublicHost
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref PublicDomain
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt PublicDomainName.RegionalDomainName
+        HostedZoneId: !GetAtt PublicDomainName.RegionalHostedZoneId
+        EvaluateTargetHealth: false
   InvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -497,6 +552,9 @@ Resources:
       TreatMissingData: notBreaching
 Outputs:
   AppUrl: {Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'}
+  PublicUrl:
+    Condition: PublicHost
+    Value: !Sub 'https://${PublicDomain}'
   ReceiptRuleSet:
     Condition: MailEnabled
     Value: !Ref ReceiptRules
