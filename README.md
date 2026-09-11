@@ -29,7 +29,7 @@ Narrated by the creator. Shows case creation, document uploads, the deliberate o
 
 ## Try it without an account
 
-The [deployed workspace](https://jmpsg8amf1.execute-api.eu-west-2.amazonaws.com) has an **Explore a sample case** button. It opens a clearly labeled **simulated sample walkthrough** with synthetic documents, a simulated request, a corrected receipt and a held message. These sample events are illustrative, not a recorded live agent run. No sign-up or shared credentials are needed.
+The [deployed workspace](https://unblock-demo.renobytes.com) has an **Explore a sample case** button. It opens a clearly labeled **simulated sample walkthrough** with synthetic documents, a simulated request, a corrected receipt and a held message. These sample events are illustrative, not a recorded live agent run. No sign-up or shared credentials are needed.
 
 The demo account is its own tenant, is never a reviewer, and every write endpoint refuses it at the
 API — not just in the interface. It cannot open cases, upload evidence, run the agent, accept a

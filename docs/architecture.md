@@ -71,6 +71,7 @@ The optional demo account is a normal Cognito user in the `demo` group and its o
 
 - London region follows the supplied AWS profile.
 - API and UI share an origin, avoiding broad CORS permissions.
+- A custom hostname is a regional API Gateway domain with a DNS-validated ACM certificate in the same region, aliased from Route53. The execute-api endpoint keeps working, and both origins are registered as Cognito callbacks so sign-in succeeds from either.
 - No VPC or NAT gateway is required for this public-AWS-service architecture.
 - Pay-per-request database and event-driven compute minimize idle infrastructure.
 - Bedrock Nova Pro is explicitly configured and access-tested in the account.
